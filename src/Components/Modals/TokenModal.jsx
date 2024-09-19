@@ -79,7 +79,7 @@ const TokenModal = ({ tokens, onSelect, onClose }) => {
         </div>
 
         {/* Token List */}
-        <div className="h-75 overflow-y-auto border-t border-gray-600">
+        <div className="h-64 overflow-y-auto border-t border-gray-600">
           {filteredTokens.map((token) => (
             <div
               key={token.symbol}
@@ -98,7 +98,7 @@ const TokenModal = ({ tokens, onSelect, onClose }) => {
                 </div>
               </div>
               <div className="text-white">
-                {token.balance} {token.symbol}
+                {token.balance}
               </div>
             </div>
           ))}

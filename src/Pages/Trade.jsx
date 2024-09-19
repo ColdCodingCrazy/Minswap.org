@@ -6,17 +6,27 @@ import ConnectWallet from "../Components/Modals/ConnectWallet";
 import TokenModal from "../Components/Modals/TokenModal";
 import tokenList from "../data/tokenList.js";
 
+
+const getTokenDetails = (symbol) => {
+  return tokenList.find(token => token.symbol === symbol);
+};
+
 function Trade() {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [showVideo, setShowVideo] = useState(true);
   const [walletConnected, setWalletConnected] = useState(false);
-  const [payToken, setPayToken] = useState("ADA");
-  const [receiveToken, setReceiveToken] = useState("MIN");
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
   const [conversionRate, setConversionRate] = useState(1); // Mock conversion rate
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [modalType, setModalType] = useState(""); // To track which token to swap (pay or receive)
+  // Find the token object from the tokenList based on the symbol
+  const [payToken, setPayToken] = useState("ADA");
+  const [receiveToken, setReceiveToken] = useState("MIN");
+
+  // Get the selected token details (including the image)
+  const payTokenDetails = getTokenDetails(payToken);
+  const receiveTokenDetails = getTokenDetails(receiveToken);
 
   const openWalletModal = () => {
     setIsWalletModalOpen(true);
@@ -37,12 +47,23 @@ function Trade() {
 
   const handleTokenSelect = (token) => {
     if (modalType === "pay") {
+      // Ensure pay token is different from receive token
+      if (token === receiveToken) {
+        alert("Pay token cannot be the same as receive token.");
+        return;
+      }
       setPayToken(token);
     } else if (modalType === "receive") {
+      // Ensure receive token is different from pay token
+      if (token === payToken) {
+        alert("Receive token cannot be the same as pay token.");
+        return;
+      }
       setReceiveToken(token);
     }
     closeTokenModal();
   };
+  
 
   const handlePayAmountChange = (e) => {
     const amount = e.target.value;
@@ -220,12 +241,12 @@ function Trade() {
                       onClick={() => openTokenModal("pay")}
                     >
                       <img
-                        src={payToken.toLowerCase() == "ada"? 'https://app.minswap.org/images/assets/cardano.png' : `https://app.minswap.org/images/assets/${payToken.toLowerCase()}.png`}
+                        src={payTokenDetails?.image}
                         className="size-6 me-2"
-                        alt={payToken}
+                        alt={payTokenDetails?.symbol}
                       />
                       <h1 className="text-textSecondary font-semibold me-2">
-                        {payToken}
+                        {payTokenDetails?.symbol}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -277,12 +298,12 @@ function Trade() {
                       onClick={() => openTokenModal("receive")}
                     >
                       <img
-                        src={`https://app.minswap.org/images/assets/${receiveToken.toLowerCase()}.png`}
+                        src= {receiveTokenDetails?.image}
                         className="size-6 me-2"
-                        alt={receiveToken}
+                        alt={receiveTokenDetails?.symbol}
                       />
                       <h1 className="text-textSecondary font-semibold ms-2 me-2">
-                        {receiveToken}
+                      {receiveTokenDetails?.symbol}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
