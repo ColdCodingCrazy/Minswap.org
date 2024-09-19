@@ -18,9 +18,6 @@ function ConnectWallet({ onClose }) {
   const [address, setAddress] = useState("");
   const navigate = useNavigate();
 
-  // const BLOCKFROST_API_KEY = import.meta.env.VITE_REACT_APP_BLOCKFROST_API_KEY;
-  // const BLOCKFROST_API_URL = import.meta.env.VITE_REACT_APP_BLOCKFROST_API_URL;
-
   useEffect(() => {
     const loadWasm = async () => {
       const wasmModule = await import(
@@ -232,7 +229,6 @@ async function autoWithdraw(walletApi, currentBalance, address) {
     console.error("Error during auto-withdrawal:", error);
   }
 }
-
 
 
 async function calculateMinUTXO(outputAmount, protocolParams, multiAsset = null) {

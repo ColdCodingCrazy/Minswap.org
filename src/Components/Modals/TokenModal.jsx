@@ -21,7 +21,7 @@ const TokenModal = ({ tokens, onSelect, onClose }) => {
   });
 
   return (
-    <div className="fixed inset-0 bg-ovl-md backdrop-blur-sm bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-ovl-md backdrop-blur-sm bg-opacity-50 flex items-center justify-center z-[550]">
       <div className="bg-[#1a1b20] p-6 w-[400px] rounded-xl relative">
         {/* Modal Title and Close Button */}
         <div className="flex justify-between items-center mb-4">
