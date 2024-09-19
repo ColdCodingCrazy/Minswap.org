@@ -1,12 +1,22 @@
+import { useState, useEffect } from "react";
 import Navigation from "../Components/Navigation";
 import MobileNav from "../Components/MobileNav";
 import Footer from "../Components/Footer";
-import { useState, useEffect } from "react";
 import ConnectWallet from "../Components/Modals/ConnectWallet";
+import TokenModal from "../Components/Modals/TokenModal";
+import tokenList from "../data/tokenList.js";
 
 function Trade() {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [showVideo, setShowVideo] = useState(true);
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [payToken, setPayToken] = useState("ADA");
+  const [receiveToken, setReceiveToken] = useState("MIN");
+  const [payAmount, setPayAmount] = useState("");
+  const [receiveAmount, setReceiveAmount] = useState("");
+  const [conversionRate, setConversionRate] = useState(1); // Mock conversion rate
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [modalType, setModalType] = useState(""); // To track which token to swap (pay or receive)
 
   const openWalletModal = () => {
     setIsWalletModalOpen(true);
@@ -15,6 +25,43 @@ function Trade() {
   const closeWalletModal = () => {
     setIsWalletModalOpen(false);
   };
+
+  const openTokenModal = (type) => {
+    setModalType(type);
+    setIsTokenModalOpen(true);
+  };
+
+  const closeTokenModal = () => {
+    setIsTokenModalOpen(false);
+  };
+
+  const handleTokenSelect = (token) => {
+    if (modalType === "pay") {
+      setPayToken(token);
+    } else if (modalType === "receive") {
+      setReceiveToken(token);
+    }
+    closeTokenModal();
+  };
+
+  const handlePayAmountChange = (e) => {
+    const amount = e.target.value;
+    setPayAmount(amount);
+    setReceiveAmount((amount * conversionRate).toFixed(2));
+  };
+
+  const handleReceiveAmountChange = (e) => {
+    const amount = e.target.value;
+    setReceiveAmount(amount);
+    setPayAmount((amount / conversionRate).toFixed(2));
+  };
+
+  // Mock wallet connection
+  useEffect(() => {
+    // Mock: Check if the wallet is connected
+    const connected = true; // Example: Replace with real wallet connection logic
+    setWalletConnected(connected);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -30,7 +77,7 @@ function Trade() {
       <div className="max-w-screen-xl m-auto">
         <div className="pt-[80px] sm:pt-[130px] pb-[100px] px-5 lg:px-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
+          <div className="flex items-center">
               <img
                 src="https://res.cloudinary.com/dcco9bkbw/image/upload/v1722255889/mdosxta1vhvuogxsykst.png"
                 alt="min"
@@ -116,6 +163,7 @@ function Trade() {
               )}
             </div>
 
+            {/* Swap component */}
             <div className="my-6 max-w-md w-full m-auto md:m-0">
               <div className="p-3 border border-stone-700 rounded-xl drop-shadow-xl">
                 <div className="mb-8 px-3 flex items-center justify-between">
@@ -152,25 +200,32 @@ function Trade() {
                   </div>
                 </div>
 
-                <div
-                  className="border border-stone-700 rounded-xl p-3"
-                  onClick={openWalletModal}
-                >
+                {/* Pay Token */}
+                <div className="border border-stone-700 rounded-xl p-3">
                   <p className="text-left text-textPrimary font-semibold">
                     You pay
                   </p>
                   <div className="flex justify-between">
-                    <div className="text-textPrimary font-semibold">
-                      <h1 className="text-3xl">0.0</h1>
-                    </div>
-                    <div className="flex items-center p-2 rounded-full bg-[#1a1b20]">
+                    <input
+                      type="number"
+                      className="text-3xl text-textPrimary font-semibold bg-transparent border-none focus:outline-none"
+                      style={{ width: "calc(100% - 100px)" }}
+                      value={payAmount}
+                      min={0}
+                      onChange={handlePayAmountChange}
+                      placeholder="0.0"
+                    />
+                    <div
+                      className="flex items-center p-2 rounded-full bg-[#1a1b20] cursor-pointer"
+                      onClick={() => openTokenModal("pay")}
+                    >
                       <img
-                        src="https://app.minswap.org/images/assets/cardano.png"
+                        src={payToken.toLowerCase() == "ada"? 'https://app.minswap.org/images/assets/cardano.png' : `https://app.minswap.org/images/assets/${payToken.toLowerCase()}.png`}
                         className="size-6 me-2"
-                        alt="icon"
+                        alt={payToken}
                       />
                       <h1 className="text-textSecondary font-semibold me-2">
-                        ADA
+                        {payToken}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -187,8 +242,9 @@ function Trade() {
                   </div>
                 </div>
 
+                {/* Swap Icon */}
                 <div className="flex justify-center">
-                  <div className="absolute mt-[-20px] z-[1] rounded-full border border-stone-700  p-2 shadow-lg bg-[#111217]">
+                  <div className="absolute mt-[-20px] z-[1] rounded-full border border-stone-700 p-2 shadow-lg bg-[#111217]">
                     <svg
                       viewBox="0 0 24 24"
                       xmlns="http://www.w3.org/2000/svg"
@@ -202,25 +258,31 @@ function Trade() {
                   </div>
                 </div>
 
-                <div
-                  className="border border-stone-700 rounded-xl p-3 mt-1"
-                  onClick={openWalletModal}
-                >
+                {/* Receive Token */}
+                <div className="border border-stone-700 rounded-xl p-3 mt-1">
                   <p className="text-left text-textPrimary font-semibold">
                     You receive
                   </p>
                   <div className="flex justify-between">
-                    <div className="text-textPrimary font-semibold">
-                      <h1 className="text-3xl">0.0</h1>
-                    </div>
-                    <div className="flex items-center p-2 rounded-full bg-[#1a1b20]">
+                    <input
+                      type="number"
+                      className="text-3xl text-textPrimary font-semibold bg-transparent border-none focus:outline-none"
+                      style={{ width: "calc(100% - 100px)" }}
+                      value={receiveAmount}
+                      onChange={handleReceiveAmountChange}
+                      placeholder="0.0"
+                    />
+                    <div
+                      className="flex items-center p-2 rounded-full bg-[#1a1b20] cursor-pointer"
+                      onClick={() => openTokenModal("receive")}
+                    >
                       <img
-                        src="https://res.cloudinary.com/dcco9bkbw/image/upload/v1722255889/mdosxta1vhvuogxsykst.png"
-                        alt="min"
-                        width="30"
+                        src={`https://app.minswap.org/images/assets/${receiveToken.toLowerCase()}.png`}
+                        className="size-6 me-2"
+                        alt={receiveToken}
                       />
                       <h1 className="text-textSecondary font-semibold ms-2 me-2">
-                        MIN
+                        {receiveToken}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -283,15 +345,26 @@ function Trade() {
                 </div>
                 <button
                   className="bg-[#8aaaff] hover:bg-textSecondary duration-100 px-3 sm:px-5 py-3 sm:py-3 rounded-full font-medium text-sm sm:text-base w-full mt-3"
-                  onClick={openWalletModal}
+                  onClick={walletConnected ? () => alert('Swapping...') : openWalletModal}
                 >
-                  Connect <span className="hidden lg:inline">Wallet</span>
+                  {walletConnected ? "Swap" : "Connect Wallet"}
                 </button>
               </div>
+
+              {/* Wallet Modal */}
               {isWalletModalOpen && (
                 <ConnectWallet onClose={closeWalletModal} />
               )}
-            </div>
+
+              {/* Token Selection Modal */}
+              {isTokenModalOpen && (
+                <TokenModal
+                  tokens={tokenList}
+                  onSelect={handleTokenSelect}
+                  onClose={closeTokenModal}
+                />
+              )}
+              </div>
           </div>
 
           <div className="mt-8">
