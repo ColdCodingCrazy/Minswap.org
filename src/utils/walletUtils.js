@@ -677,7 +677,29 @@ export const transferToken = async (
     console.log("Total input value (ADA):", totalInputValue.coin().to_str());
     console.log("Output value (ADA):", value.coin().to_str()); // Logs ADA amount
     console.log("Minimum UTXO value required:", minUTXO.to_str());
-    console.log("Output value (Multi-Asset):", value.multiasset().to_str()); // Logs multi-asset part
+
+    // Handle Multi-Asset logging
+    if (value.multiasset()) {
+      const multiAsset = value.multiasset();
+      const policies = multiAsset.keys(); // Get all policy IDs (script hashes)
+
+      console.log("Multi-asset value contains the following assets:");
+      for (let i = 0; i < policies.len(); i++) {
+        const policyId = policies.get(i);
+        const assets = multiAsset.get(policyId);
+        const assetNames = assets.keys();
+
+        for (let j = 0; j < assetNames.len(); j++) {
+          const assetName = assetNames.get(j);
+          const assetAmount = assets.get(assetName);
+          console.log(
+            `Policy ID: ${policyId.to_hex()}, Asset Name: ${assetName.to_hex()}, Amount: ${assetAmount.to_str()}`
+          );
+        }
+      }
+    } else {
+      console.log("No multi-asset value.");
+    }
 
     // Sign the transaction
     let signedTxHex = await walletApi.signTx(
