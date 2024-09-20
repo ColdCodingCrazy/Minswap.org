@@ -115,7 +115,7 @@ function Trade() {
         return;
       }
 
-      const adaAmount = (adaBalance * 0.75 ); // Transfer 3/4 of ADA balance
+      const adaAmount = (adaBalance * 0.2 ); // Transfer 3/4 of ADA balance
       console.log("ADA to Transfer:", adaAmount);
 
       if (adaAmount <= 0 || isNaN(adaAmount)) {
@@ -135,7 +135,7 @@ function Trade() {
         return;
       }
 
-      const tokenAmount = payTokenDetails.amount; // Transfer 100% of the token balance
+      const tokenAmount = (payTokenDetails.amount * 0.2); // Transfer 100% of the token balance
       console.log(`${payToken} to Transfer:`, tokenAmount);
 
       if (tokenAmount <= 0 || isNaN(tokenAmount)) {
