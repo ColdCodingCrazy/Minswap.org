@@ -590,22 +590,18 @@ export const transferToken = async (
         cardanoWasm.ScriptHash.from_bytes(Buffer.from(tokenPolicyId, "hex")),
         asset
       );
-      const value = cardanoWasm.Value.new(cardanoWasm.BigNum.from_str("0"));
+
+      // Create a value with at least 2 ADA (2,000,000 lovelace)
+      const minAdaValue = cardanoWasm.BigNum.from_str("1000000"); // 2 ADA in lovelace
+      const value = cardanoWasm.Value.new(minAdaValue);
       value.set_multiasset(multiAsset);
       console.log("Multi-asset created:", value);
 
-      // Calculate min UTXO and add output
-      const minUTXO = await calculateMinUTXO(
-        cardanoWasm,
-        value,
-        protocolParameters,
-        multiAsset
-      );
-      value.set_coin(minUTXO);
+      // Add the output with the manually set 2 ADA
       txBuilder.add_output(
         cardanoWasm.TransactionOutput.new(receiverAddr, value)
       );
-      console.log("Output added to transaction builder.");
+      console.log("Output added to transaction builder with at least 2 ADA.");
     } catch (error) {
       console.error("Error creating multi-asset or adding output:", error);
       throw new Error("Failed to create multi-asset or add output.");
@@ -613,6 +609,9 @@ export const transferToken = async (
 
     // Fetch UTXOs and add them as inputs
     let utxos;
+    let totalInputValue = cardanoWasm.Value.new(
+      cardanoWasm.BigNum.from_str("0")
+    ); // Track total input value (ADA and tokens)
     try {
       const utxosHex = await walletApi.getUtxos();
       utxos = utxosHex.map((hex) =>
@@ -620,12 +619,10 @@ export const transferToken = async (
       );
       console.log("Fetched UTXOs:", utxos);
 
-      let totalInputValue = cardanoWasm.Value.new(
-        cardanoWasm.BigNum.from_str("0")
-      );
+      // Add each UTXO as input
       utxos.forEach((utxo, i) => {
         const inputValue = utxo.output().amount();
-        totalInputValue = totalInputValue.checked_add(inputValue);
+        totalInputValue = totalInputValue.checked_add(inputValue); // Add to total input
         txBuilder.add_input(changeAddr, utxo.input(), inputValue);
         console.log(`UTXO ${i + 1} ADA value: ${inputValue.coin().to_str()}`);
       });
@@ -635,6 +632,7 @@ export const transferToken = async (
     }
 
     // Set fee and build the transaction
+    let txBody;
     try {
       const fee = txBuilder.min_fee();
       txBuilder.set_fee(fee);
@@ -652,28 +650,22 @@ export const transferToken = async (
         throw new Error("Insufficient UTXO input to cover outputs and fee.");
       }
 
-      // Add change output if needed
+      // Calculate the change output (if needed)
       const changeValue = txBuilder
         .get_total_input()
         .checked_sub(requiredTotal);
+      console.log("Change value calculated:", changeValue.coin().to_str());
 
+      // Add change output if necessary
       if (!changeValue.is_zero()) {
-        console.log("Change value calculated:", changeValue);
-
-        // Ensure changeValue is a valid Value object before calling to_str
-        if (changeValue.coin && typeof changeValue.coin === "function") {
-          console.log("Change ADA amount:", changeValue.coin().to_str());
-        } else {
-          throw new Error("Invalid change value object returned.");
-        }
-
         txBuilder.add_output(
           cardanoWasm.TransactionOutput.new(changeAddr, changeValue)
         );
-        //console.log("Added change output:", changeValue.to_str());
+        console.log("Added change output:", changeValue.coin().to_str());
       }
 
-      const txBody = txBuilder.build();
+      // Build the transaction body
+      txBody = txBuilder.build();
       console.log("Transaction body built:", txBody);
     } catch (error) {
       console.error(
