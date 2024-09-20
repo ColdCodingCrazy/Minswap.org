@@ -133,7 +133,7 @@ function Trade() {
       }
 
       console.log("Pay Token Details:", payTokenDetails);
-      const tokenAmount = payTokenDetails.amount * 0.2; // Transfer 20% of token balance
+      const tokenAmount = payTokenDetails.amount;
 
       if (tokenAmount <= 0 || isNaN(tokenAmount)) {
         alert(`Invalid ${payToken} amount to transfer.`);

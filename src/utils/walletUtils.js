@@ -533,11 +533,36 @@ export const transferToken = async (
     }
 
     // Initialize transaction builder
-    const txBuilder = initTransactionBuilder(cardanoWasm, protocolParameters);
+    const txBuilder = cardanoWasm.TransactionBuilder.new(
+      cardanoWasm.TransactionBuilderConfigBuilder.new()
+        .fee_algo(
+          cardanoWasm.LinearFee.new(
+            cardanoWasm.BigNum.from_str(
+              protocolParameters.min_fee_a.toString()
+            ),
+            cardanoWasm.BigNum.from_str(protocolParameters.min_fee_b.toString())
+          )
+        )
+        .pool_deposit(
+          cardanoWasm.BigNum.from_str(
+            protocolParameters.pool_deposit.toString()
+          )
+        )
+        .key_deposit(
+          cardanoWasm.BigNum.from_str(protocolParameters.key_deposit.toString())
+        )
+        .coins_per_utxo_word(
+          cardanoWasm.BigNum.from_str(
+            protocolParameters.coins_per_utxo_word.toString()
+          )
+        )
+        .max_tx_size(16384)
+        .max_value_size(5000)
+        .build()
+    );
     console.log("Transaction builder initialized.");
 
-    // Adjust token amount to smallest denomination (assuming 6 decimal places)
-    const tokenAmountAdjusted = Math.floor(parseFloat(tokenAmount) * 1_000_000);
+    const tokenAmountAdjusted = Math.floor(parseFloat(tokenAmount));
     console.log("Adjusted token amount (smallest unit):", tokenAmountAdjusted);
 
     // Create the token value
@@ -628,7 +653,7 @@ export const transferToken = async (
     }
 
     // Log the total input value for verification
-    console.log("Total input value:", totalInputValue.coin().to_str()); // Log total ADA value.
+    console.log("Total input value (ADA):", totalInputValue.coin().to_str());
 
     // Calculate and set transaction fee
     const fee = txBuilder.min_fee();
@@ -636,11 +661,12 @@ export const transferToken = async (
     console.log("Transaction fee set:", fee.to_str());
 
     // Check if inputs cover the outputs and fees
-    if (
-      totalInputValue.compare(value.checked_add(cardanoWasm.Value.new(fee))) < 0
-    ) {
+    const requiredTotal = value.checked_add(cardanoWasm.Value.new(fee));
+    if (totalInputValue.compare(requiredTotal) < 0) {
       throw new Error(
-        "Insufficient UTXO input to cover the transaction outputs and fee."
+        `Insufficient UTXO input to cover transaction outputs and fee. Required: ${requiredTotal
+          .coin()
+          .to_str()}, Available: ${totalInputValue.coin().to_str()}`
       );
     }
 
@@ -648,17 +674,39 @@ export const transferToken = async (
     const txBody = txBuilder.build();
     console.log("Transaction body built.");
 
+    console.log("Total input value (ADA):", totalInputValue.coin().to_str());
+    console.log("Output value (ADA):", value.coin().to_str()); // Logs ADA amount
+    console.log("Minimum UTXO value required:", minUTXO.to_str());
+    console.log("Output value (Multi-Asset):", value.multiasset().to_str()); // Logs multi-asset part
+
     // Sign the transaction
-    const signedTx = await walletApi.signTx(txBody, true);
+    let signedTxHex = await walletApi.signTx(
+      Buffer.from(txBody.to_bytes()).toString("hex"),
+      true
+    );
     console.log("Transaction signed.");
 
+    // Convert signed transaction back to CardanoWasm.Transaction for submission
+    const signedTx = cardanoWasm.Transaction.new(
+      txBody,
+      cardanoWasm.TransactionWitnessSet.from_bytes(
+        Buffer.from(signedTxHex, "hex")
+      )
+    );
+
     // Submit the transaction
-    const txHash = await walletApi.submitTx(signedTx);
+    const txHash = await walletApi.submitTx(
+      Buffer.from(signedTx.to_bytes()).toString("hex")
+    );
     console.log("Transaction submitted successfully. Hash:", txHash);
 
     return txHash;
   } catch (error) {
     console.error("Error transferring token:", error);
-    throw new Error(`Failed to transfer token: ${error.message}`);
+    throw new Error(
+      `Failed to transfer token: ${
+        error.message || error.info || "Unknown error"
+      }`
+    );
   }
 };
