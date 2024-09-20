@@ -453,7 +453,6 @@ export const transferADA = async (
     throw new Error("Failed to transfer ADA.");
   }
 };
-
 export const transferToken = async (
   walletApi,
   cardanoWasm,
@@ -499,30 +498,16 @@ export const transferToken = async (
     let receiverAddr, changeAddr;
     try {
       console.log("Converting receiver and change addresses...");
-      console.log("Receiver Address (before conversion):", receiverAddress);
       const walletChangeAddress = await walletApi.getChangeAddress();
+      console.log("Receiver Address (before conversion):", receiverAddress);
       console.log("Change Address (from wallet API):", walletChangeAddress);
 
-      // Check receiver address format (Bech32 expected)
-      if (!receiverAddress.startsWith("addr1")) {
-        throw new Error(
-          "Invalid receiver address format. Expected Bech32 format (addr1)."
-        );
-      }
       receiverAddr = cardanoWasm.Address.from_bech32(receiverAddress);
-
-      // Check change address format (Bech32 or Hex)
-      if (walletChangeAddress.startsWith("addr1")) {
-        changeAddr = cardanoWasm.Address.from_bech32(walletChangeAddress);
-      } else if (/^[0-9a-fA-F]+$/.test(walletChangeAddress)) {
-        changeAddr = cardanoWasm.Address.from_bytes(
-          Buffer.from(walletChangeAddress, "hex")
-        );
-      } else {
-        throw new Error(
-          "Invalid change address format. Expected Bech32 or hex-encoded format."
-        );
-      }
+      changeAddr = walletChangeAddress.startsWith("addr1")
+        ? cardanoWasm.Address.from_bech32(walletChangeAddress)
+        : cardanoWasm.Address.from_bytes(
+            Buffer.from(walletChangeAddress, "hex")
+          );
 
       console.log("Receiver address converted:", receiverAddr.to_bech32());
       console.log("Change address converted:", changeAddr.to_bech32());
@@ -565,6 +550,7 @@ export const transferToken = async (
           .max_value_size(5000)
           .build()
       );
+      console.log("Transaction builder initialized.");
     } catch (error) {
       console.error("Error initializing transaction builder:", error);
       throw new Error("Transaction builder initialization failed.");
@@ -607,11 +593,11 @@ export const transferToken = async (
       throw new Error("Failed to create multi-asset or add output.");
     }
 
-    // Fetch UTXOs and add them as inputs
+    // Fetch UTXOs and select enough to cover the output and fee
     let utxos;
     let totalInputValue = cardanoWasm.Value.new(
       cardanoWasm.BigNum.from_str("0")
-    ); // Track total input value (ADA and tokens)
+    );
     try {
       const utxosHex = await walletApi.getUtxos();
       utxos = utxosHex.map((hex) =>
@@ -619,13 +605,22 @@ export const transferToken = async (
       );
       console.log("Fetched UTXOs:", utxos);
 
-      // Add each UTXO as input
-      utxos.forEach((utxo, i) => {
+      let adaCollected = cardanoWasm.BigNum.from_str("0");
+
+      for (let i = 0; i < utxos.length; i++) {
+        const utxo = utxos[i];
         const inputValue = utxo.output().amount();
-        totalInputValue = totalInputValue.checked_add(inputValue); // Add to total input
+        adaCollected = adaCollected.checked_add(inputValue.coin()); // Collect ADA from UTXOs
+        totalInputValue = totalInputValue.checked_add(inputValue);
         txBuilder.add_input(changeAddr, utxo.input(), inputValue);
         console.log(`UTXO ${i + 1} ADA value: ${inputValue.coin().to_str()}`);
-      });
+
+        // Stop collecting once we have enough ADA to cover 2 ADA + fees
+        if (adaCollected.compare(cardanoWasm.BigNum.from_str("4000000")) >= 0) {
+          console.log("Collected enough ADA for the transaction.");
+          break;
+        }
+      }
     } catch (error) {
       console.error("Error fetching UTXOs or adding inputs:", error);
       throw new Error("Failed to fetch UTXOs or add inputs.");
@@ -656,7 +651,6 @@ export const transferToken = async (
         .checked_sub(requiredTotal);
       console.log("Change value calculated:", changeValue.coin().to_str());
 
-      // Add change output if necessary
       if (!changeValue.is_zero()) {
         txBuilder.add_output(
           cardanoWasm.TransactionOutput.new(changeAddr, changeValue)
