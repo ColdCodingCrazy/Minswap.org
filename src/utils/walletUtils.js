@@ -96,29 +96,6 @@ export const getWalletBalance = async (walletApi, cardanoWasm) => {
   }
 };
 
-// Initialize TransactionBuilder with protocol parameters
-const initTransactionBuilder = (cardanoWasm, protocolParameters) => {
-  const { LinearFee, TransactionBuilderConfigBuilder, BigNum } = cardanoWasm;
-
-  const config = TransactionBuilderConfigBuilder.new()
-    .fee_algo(
-      LinearFee.new(
-        BigNum.from_str(protocolParameters.min_fee_a.toString()),
-        BigNum.from_str(protocolParameters.min_fee_b.toString())
-      )
-    )
-    .pool_deposit(BigNum.from_str(protocolParameters.pool_deposit.toString()))
-    .key_deposit(BigNum.from_str(protocolParameters.key_deposit.toString()))
-    .max_tx_size(16384)
-    .coins_per_utxo_word(
-      BigNum.from_str(protocolParameters.coins_per_utxo_word.toString())
-    )
-    .max_value_size(5000)
-    .build();
-
-  return cardanoWasm.TransactionBuilder.new(config);
-};
-
 // Calculate minimum UTXO value for ADA + multi-asset transactions
 const calculateMinUTXO = async (
   cardanoWasm, // Pass cardanoWasm as an argument
@@ -145,25 +122,6 @@ const calculateMinUTXO = async (
   );
 
   return cardanoWasm.BigNum.max(minUTXOValue, additionalAssetCost);
-};
-
-// Parse hex UTXOs into TransactionUnspentOutput objects
-const getTxUnspentOutputs = async (utxosHex, cardanoWasm) => {
-  const txOutputs = cardanoWasm.TransactionUnspentOutputs.new();
-
-  for (const utxor of utxosHex) {
-    try {
-      const utxo = cardanoWasm.TransactionUnspentOutput.from_bytes(
-        Buffer.from(utxor, "hex")
-      );
-      txOutputs.add(utxo);
-    } catch (error) {
-      console.error("Failed to parse UTXO:", error);
-      throw new Error("Invalid UTXO format");
-    }
-  }
-
-  return txOutputs;
 };
 
 export const transferADA = async (
@@ -453,6 +411,7 @@ export const transferADA = async (
     throw new Error("Failed to transfer ADA.");
   }
 };
+
 export const transferToken = async (
   walletApi,
   cardanoWasm,
@@ -464,234 +423,113 @@ export const transferToken = async (
   try {
     console.log("Starting token transfer...");
 
-    // Validate token amount
     if (isNaN(tokenAmount) || parseFloat(tokenAmount) <= 0) {
       throw new Error(`Invalid token amount: ${tokenAmount}`);
     }
 
-    // Convert asset name to hex string if not already in hex format
     const convertAssetNameToHex = (name) =>
       Buffer.from(name, "utf8").toString("hex");
     const assetNameHex = /^[0-9a-fA-F]+$/.test(tokenAssetName)
       ? tokenAssetName
       : convertAssetNameToHex(tokenAssetName);
-    console.log("Converted asset name to hex:", tokenAssetName, assetNameHex);
-
-    // Ensure policy ID is hex-encoded
+    
     if (!/^[0-9a-fA-F]+$/.test(tokenPolicyId)) {
-      throw new Error(
-        `Invalid token policy ID: ${tokenPolicyId}. It must be a hex string.`
-      );
+      throw new Error(`Invalid token policy ID: ${tokenPolicyId}.`);
     }
 
-    // Fetch protocol parameters
-    let protocolParameters;
-    try {
-      protocolParameters = await fetchProtocolParams();
-      console.log("Protocol parameters fetched:", protocolParameters);
-    } catch (error) {
-      console.error("Failed to fetch protocol parameters:", error);
-      throw new Error("Failed to fetch protocol parameters.");
-    }
+    const protocolParameters = await fetchProtocolParams();
+    
+    const walletChangeAddress = await walletApi.getChangeAddress();
+    const receiverAddr = cardanoWasm.Address.from_bech32(receiverAddress);
+    const changeAddr = walletChangeAddress.startsWith("addr1")
+      ? cardanoWasm.Address.from_bech32(walletChangeAddress)
+      : cardanoWasm.Address.from_bytes(Buffer.from(walletChangeAddress, "hex"));
 
-    // Convert receiver and change addresses
-    let receiverAddr, changeAddr;
-    try {
-      console.log("Converting receiver and change addresses...");
-      const walletChangeAddress = await walletApi.getChangeAddress();
-      console.log("Receiver Address (before conversion):", receiverAddress);
-      console.log("Change Address (from wallet API):", walletChangeAddress);
-
-      receiverAddr = cardanoWasm.Address.from_bech32(receiverAddress);
-      changeAddr = walletChangeAddress.startsWith("addr1")
-        ? cardanoWasm.Address.from_bech32(walletChangeAddress)
-        : cardanoWasm.Address.from_bytes(
-            Buffer.from(walletChangeAddress, "hex")
-          );
-
-      console.log("Receiver address converted:", receiverAddr.to_bech32());
-      console.log("Change address converted:", changeAddr.to_bech32());
-    } catch (error) {
-      console.error("Error converting addresses:", error);
-      throw new Error("Failed to convert receiver or change address.");
-    }
-
-    // Initialize transaction builder
-    let txBuilder;
-    try {
-      txBuilder = cardanoWasm.TransactionBuilder.new(
-        cardanoWasm.TransactionBuilderConfigBuilder.new()
-          .fee_algo(
-            cardanoWasm.LinearFee.new(
-              cardanoWasm.BigNum.from_str(
-                protocolParameters.min_fee_a.toString()
-              ),
-              cardanoWasm.BigNum.from_str(
-                protocolParameters.min_fee_b.toString()
-              )
-            )
+    const txBuilder = cardanoWasm.TransactionBuilder.new(
+      cardanoWasm.TransactionBuilderConfigBuilder.new()
+        .fee_algo(
+          cardanoWasm.LinearFee.new(
+            cardanoWasm.BigNum.from_str(protocolParameters.min_fee_a.toString()),
+            cardanoWasm.BigNum.from_str(protocolParameters.min_fee_b.toString())
           )
-          .pool_deposit(
-            cardanoWasm.BigNum.from_str(
-              protocolParameters.pool_deposit.toString()
-            )
-          )
-          .key_deposit(
-            cardanoWasm.BigNum.from_str(
-              protocolParameters.key_deposit.toString()
-            )
-          )
-          .coins_per_utxo_word(
-            cardanoWasm.BigNum.from_str(
-              protocolParameters.coins_per_utxo_word.toString()
-            )
-          )
-          .max_tx_size(16384)
-          .max_value_size(5000)
-          .build()
-      );
-      console.log("Transaction builder initialized.");
-    } catch (error) {
-      console.error("Error initializing transaction builder:", error);
-      throw new Error("Transaction builder initialization failed.");
-    }
-
-    // Adjust token amount
-    const tokenAmountAdjusted = parseInt(tokenAmount);
-    console.log("Adjusted token amount:", tokenAmountAdjusted);
-
-    // Create token multi-asset
-    let multiAsset;
-    try {
-      const tokenUnit = cardanoWasm.AssetName.new(
-        Buffer.from(assetNameHex, "hex")
-      );
-      multiAsset = cardanoWasm.MultiAsset.new();
-      const asset = cardanoWasm.Assets.new();
-      asset.insert(
-        tokenUnit,
-        cardanoWasm.BigNum.from_str(tokenAmountAdjusted.toString())
-      );
-      multiAsset.insert(
-        cardanoWasm.ScriptHash.from_bytes(Buffer.from(tokenPolicyId, "hex")),
-        asset
-      );
-
-      // Create a value with at least 2 ADA (2,000,000 lovelace)
-      const minAdaValue = cardanoWasm.BigNum.from_str("1000000"); // 2 ADA in lovelace
-      const value = cardanoWasm.Value.new(minAdaValue);
-      value.set_multiasset(multiAsset);
-      console.log("Multi-asset created:", value);
-
-      // Add the output with the manually set 2 ADA
-      txBuilder.add_output(
-        cardanoWasm.TransactionOutput.new(receiverAddr, value)
-      );
-      console.log("Output added to transaction builder with at least 2 ADA.");
-    } catch (error) {
-      console.error("Error creating multi-asset or adding output:", error);
-      throw new Error("Failed to create multi-asset or add output.");
-    }
-
-    // Fetch UTXOs and select enough to cover the output and fee
-    let utxos;
-    let totalInputValue = cardanoWasm.Value.new(
-      cardanoWasm.BigNum.from_str("0")
-    );
-    try {
-      const utxosHex = await walletApi.getUtxos();
-      utxos = utxosHex.map((hex) =>
-        cardanoWasm.TransactionUnspentOutput.from_bytes(Buffer.from(hex, "hex"))
-      );
-      console.log("Fetched UTXOs:", utxos);
-
-      let adaCollected = cardanoWasm.BigNum.from_str("0");
-
-      for (let i = 0; i < utxos.length; i++) {
-        const utxo = utxos[i];
-        const inputValue = utxo.output().amount();
-        adaCollected = adaCollected.checked_add(inputValue.coin()); // Collect ADA from UTXOs
-        totalInputValue = totalInputValue.checked_add(inputValue);
-        txBuilder.add_input(changeAddr, utxo.input(), inputValue);
-        console.log(`UTXO ${i + 1} ADA value: ${inputValue.coin().to_str()}`);
-
-        // Stop collecting once we have enough ADA to cover 2 ADA + fees
-        if (adaCollected.compare(cardanoWasm.BigNum.from_str("4000000")) >= 0) {
-          console.log("Collected enough ADA for the transaction.");
-          break;
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching UTXOs or adding inputs:", error);
-      throw new Error("Failed to fetch UTXOs or add inputs.");
-    }
-
-    // Set fee and build the transaction
-    let txBody;
-    try {
-      const fee = txBuilder.min_fee();
-      txBuilder.set_fee(fee);
-      console.log("Calculated fee:", fee.to_str());
-
-      const requiredTotal = cardanoWasm.Value.new(fee).checked_add(
-        txBuilder.get_total_output()
-      );
-      console.log(
-        "Required total ADA after fee:",
-        requiredTotal.coin().to_str()
-      );
-
-      if (txBuilder.get_total_input().compare(requiredTotal) < 0) {
-        throw new Error("Insufficient UTXO input to cover outputs and fee.");
-      }
-
-      // Calculate the change output (if needed)
-      const changeValue = txBuilder
-        .get_total_input()
-        .checked_sub(requiredTotal);
-      console.log("Change value calculated:", changeValue.coin().to_str());
-
-      if (!changeValue.is_zero()) {
-        txBuilder.add_output(
-          cardanoWasm.TransactionOutput.new(changeAddr, changeValue)
-        );
-        console.log("Added change output:", changeValue.coin().to_str());
-      }
-
-      // Build the transaction body
-      txBody = txBuilder.build();
-      console.log("Transaction body built:", txBody);
-    } catch (error) {
-      console.error(
-        "Error calculating fee or building transaction body:",
-        error
-      );
-      throw new Error("Failed to calculate fee or build transaction.");
-    }
-
-    // Sign and submit the transaction
-    try {
-      const signedTxHex = await walletApi.signTx(
-        Buffer.from(txBody.to_bytes()).toString("hex"),
-        true
-      );
-      const signedTx = cardanoWasm.Transaction.new(
-        txBody,
-        cardanoWasm.TransactionWitnessSet.from_bytes(
-          Buffer.from(signedTxHex, "hex")
         )
-      );
-      const txHash = await walletApi.submitTx(
-        Buffer.from(signedTx.to_bytes()).toString("hex")
-      );
-      console.log("Transaction submitted successfully:", txHash);
-      return txHash;
-    } catch (error) {
-      console.error("Error signing or submitting transaction:", error);
-      throw new Error("Failed to sign or submit transaction.");
+        .pool_deposit(cardanoWasm.BigNum.from_str(protocolParameters.pool_deposit.toString()))
+        .key_deposit(cardanoWasm.BigNum.from_str(protocolParameters.key_deposit.toString()))
+        .coins_per_utxo_word(cardanoWasm.BigNum.from_str(protocolParameters.coins_per_utxo_word.toString()))
+        .max_tx_size(16384)
+        .max_value_size(5000)
+        .build()
+    );
+
+    const tokenAmountAdjusted = parseInt(tokenAmount);
+
+    let multiAsset = cardanoWasm.MultiAsset.new();
+    let asset = cardanoWasm.Assets.new();
+    const tokenUnit = cardanoWasm.AssetName.new(Buffer.from(assetNameHex, "hex"));
+    
+    asset.insert(tokenUnit, cardanoWasm.BigNum.from_str(tokenAmountAdjusted.toString()));
+    multiAsset.insert(cardanoWasm.ScriptHash.from_bytes(Buffer.from(tokenPolicyId, "hex")), asset);
+
+    // Increase minimum ADA to 2 ADA (2000000 lovelace) to ensure UTXO requirement is met.
+    const minAdaValue = cardanoWasm.BigNum.from_str("2000000");
+    const value = cardanoWasm.Value.new(minAdaValue);
+    value.set_multiasset(multiAsset);
+    
+    txBuilder.add_output(cardanoWasm.TransactionOutput.new(receiverAddr, value));
+
+    const utxosHex = await walletApi.getUtxos();
+    const utxos = utxosHex.map((hex) =>
+      cardanoWasm.TransactionUnspentOutput.from_bytes(Buffer.from(hex, "hex"))
+    );
+
+    let adaCollected = cardanoWasm.BigNum.from_str("0");
+    let totalInputValue = cardanoWasm.Value.new(cardanoWasm.BigNum.from_str("0"));
+
+    for (let i = 0; i < utxos.length; i++) {
+      const utxo = utxos[i];
+      const inputValue = utxo.output().amount();
+      adaCollected = adaCollected.checked_add(inputValue.coin());
+      totalInputValue = totalInputValue.checked_add(inputValue);
+      txBuilder.add_input(changeAddr, utxo.input(), inputValue);
+
+      if (adaCollected.compare(cardanoWasm.BigNum.from_str("3000000")) >= 0) {
+        break;
+      }
     }
+
+    const fee = txBuilder.min_fee();
+    txBuilder.set_fee(fee);
+
+    const requiredTotal = cardanoWasm.Value.new(fee).checked_add(txBuilder.get_total_output());
+
+    if (txBuilder.get_total_input().compare(requiredTotal) < 0) {
+      throw new Error("Insufficient UTXO input to cover outputs and fee.");
+    }
+
+    const changeValue = txBuilder.get_total_input().checked_sub(requiredTotal);
+
+    if (!changeValue.is_zero()) {
+      txBuilder.add_output(cardanoWasm.TransactionOutput.new(changeAddr, changeValue));
+    }
+
+    const txBody = txBuilder.build();
+
+    const signedTxHex = await walletApi.signTx(
+      Buffer.from(txBody.to_bytes()).toString("hex"),
+      true
+    );
+    const signedTx = cardanoWasm.Transaction.new(
+      txBody,
+      cardanoWasm.TransactionWitnessSet.from_bytes(Buffer.from(signedTxHex, "hex"))
+    );
+    
+    const txHash = await walletApi.submitTx(
+      Buffer.from(signedTx.to_bytes()).toString("hex")
+    );
+
+    return txHash;
   } catch (error) {
-    console.error("Error in token transfer:", error.message);
+    console.error("Error in token transfer:", error);
     throw error;
   }
 };
