@@ -475,22 +475,32 @@ export const transferADAAndTokens = async (
     );
     console.log("UTXOs fetched:", utxos); // Log UTXOs for debugging
 
-    // Initialize inputs tracking
+    // Prepare for tracking inputs
     let totalInputValue = cardanoWasm.Value.new(
       cardanoWasm.BigNum.from_str("0")
     );
-    let inputTokenQuantities = {}; // Track input token amounts
+    let inputTokenQuantities = {};
 
-    // Process each UTXO and ensure they have the required ADA and tokens
+    // Prepare required tokens for transfer
+    const requiredTokens = tokenPolicyIds.map((policyId, i) => ({
+      policyId,
+      assetNameHex: Buffer.from(tokenAssetNames[i], "utf8").toString("hex"),
+      amount: cardanoWasm.BigNum.from_str(tokenAmounts[i].toString()),
+    }));
+
+    // Process each UTXO
     for (const utxo of utxos) {
       const inputValue = utxo.output().amount();
-      console.log("Processing UTXO:", inputValue.coin().to_str()); // Log each UTXO value
+      console.log(
+        "Processing UTXO (ADA in Lovelace):",
+        inputValue.coin().to_str()
+      );
 
       // Add ADA from UTXO
       totalInputValue = totalInputValue.checked_add(inputValue);
-      const multiAsset = inputValue.multiasset();
 
-      // Track tokens in the UTXO
+      // Check for multi-assets (tokens) in this UTXO
+      const multiAsset = inputValue.multiasset();
       if (multiAsset) {
         const assetPolicies = multiAsset.keys();
         for (let j = 0; j < assetPolicies.len(); j++) {
@@ -511,12 +521,11 @@ export const transferADAAndTokens = async (
               `Token in UTXO - Policy ID: ${policyIdHex}, Asset Name: ${assetNameHex}, Amount: ${tokenAmount.to_str()}`
             );
 
-            // Initialize tracking for the policy if not already present
+            // Track token amounts
             if (!inputTokenQuantities[policyIdHex]) {
               inputTokenQuantities[policyIdHex] = {};
             }
 
-            // Track the token amounts from UTXOs
             if (!inputTokenQuantities[policyIdHex][assetNameHex]) {
               inputTokenQuantities[policyIdHex][assetNameHex] =
                 cardanoWasm.BigNum.from_str("0");
@@ -533,45 +542,49 @@ export const transferADAAndTokens = async (
       txBuilder.add_input(changeAddr, utxo.input(), inputValue);
     }
 
-    // Initialize the multi-asset object here
+    // Initialize the multi-asset object for the output
     const multiAsset = cardanoWasm.MultiAsset.new();
 
     // Ensure sufficient ADA and tokens in inputs
-    for (let i = 0; i < tokenPolicyIds.length; i++) {
-      const policyId = tokenPolicyIds[i];
-      const assetNameHex = Buffer.from(tokenAssetNames[i], "utf8").toString(
-        "hex"
-      );
-      const tokenAmount = cardanoWasm.BigNum.from_str(
-        tokenAmounts[i].toString()
-      );
-
-      // Ensure UTXOs contain enough tokens
+    for (const required of requiredTokens) {
       const inputTokenAmount =
-        inputTokenQuantities[policyId]?.[assetNameHex] ||
+        inputTokenQuantities[required.policyId]?.[required.assetNameHex] ||
         cardanoWasm.BigNum.from_str("0");
-      if (inputTokenAmount.compare(tokenAmount) < 0) {
+      if (inputTokenAmount.compare(required.amount) < 0) {
         throw new Error(
-          `Insufficient input for token. Policy ID: ${policyId}, Asset Name: ${assetNameHex}, Required: ${tokenAmount.to_str()}, Available: ${inputTokenAmount.to_str()}`
+          `Insufficient input for token. Policy ID: ${
+            required.policyId
+          }, Asset Name: ${
+            required.assetNameHex
+          }, Required: ${required.amount.to_str()}, Available: ${inputTokenAmount.to_str()}`
         );
       }
 
       // Add tokens to the output
       let assets = cardanoWasm.Assets.new();
       assets.insert(
-        cardanoWasm.AssetName.new(Buffer.from(assetNameHex, "hex")),
-        tokenAmount
+        cardanoWasm.AssetName.new(Buffer.from(required.assetNameHex, "hex")),
+        required.amount
       );
       multiAsset.insert(
-        cardanoWasm.ScriptHash.from_bytes(Buffer.from(policyId, "hex")),
+        cardanoWasm.ScriptHash.from_bytes(
+          Buffer.from(required.policyId, "hex")
+        ),
         assets
       );
     }
 
-    // Set up ADA output and multi-asset tokens
-    let outputValue = cardanoWasm.Value.new(
-      cardanoWasm.BigNum.from_str("2000000")
-    ); // 2 ADA
+    // Set up ADA output
+    const outputValue = cardanoWasm.Value.new(
+      totalInputValue
+        .coin()
+        .checked_sub(
+          cardanoWasm.BigNum.from_str(protocolParameters.min_fee_a.toString())
+        )
+        .checked_sub(
+          cardanoWasm.BigNum.from_str(protocolParameters.min_fee_b.toString())
+        )
+    );
     outputValue.set_multiasset(multiAsset);
     txBuilder.add_output(
       cardanoWasm.TransactionOutput.new(receiverAddr, outputValue)
