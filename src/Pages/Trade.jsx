@@ -22,7 +22,7 @@ function Trade() {
   const [modalType, setModalType] = useState(""); // To track which token to swap (pay or receive)
   // Find the token object from the tokenList based on the symbol
   const [payToken, setPayToken] = useState("ADA");
-  const [receiveToken, setReceiveToken] = useState("iUSD");
+  const [receiveToken, setReceiveToken] = useState("MIN");
 
   // Get the selected token details (including the image)
   const payTokenDetails = getTokenDetails(payToken);
@@ -71,14 +71,34 @@ function Trade() {
   const handlePayAmountChange = (e) => {
     const amount = e.target.value;
     setPayAmount(amount);
-    setReceiveAmount((amount * conversionRate).toFixed(2));
+    updateReceiveAmount(amount);
   };
 
   const handleReceiveAmountChange = (e) => {
     const amount = e.target.value;
     setReceiveAmount(amount);
-    setPayAmount((amount / conversionRate).toFixed(2));
+    updatePayAmount(amount);
   };
+
+  const updateReceiveAmount = (amount) => {
+    const payTokenRateToADA = payTokenDetails.conversionRateToADA || 1;
+    const receiveTokenRateToADA = receiveTokenDetails.conversionRateToADA || 1;
+    const newReceiveAmount = (amount * payTokenRateToADA) / receiveTokenRateToADA;
+    setReceiveAmount(newReceiveAmount.toFixed(2));
+  };
+
+  const updatePayAmount = (amount) => {
+    const payTokenRateToADA = payTokenDetails.conversionRateToADA || 1;
+    const receiveTokenRateToADA = receiveTokenDetails.conversionRateToADA || 1;
+    const newPayAmount = (amount * receiveTokenRateToADA) / payTokenRateToADA;
+    setPayAmount(newPayAmount.toFixed(2));
+  };
+  useEffect(() => {
+    if (payAmount) {
+      updateReceiveAmount(payAmount);
+    }
+  }, [payToken, receiveToken, payAmount]);
+
 
   const connectWallet = async () => {
     if (window.cardano && window.cardano.nami) {
